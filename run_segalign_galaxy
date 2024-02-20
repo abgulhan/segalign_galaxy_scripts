@@ -1,0 +1,117 @@
+#!/bin/bash
+
+#custom error code
+#4 - file not found
+#5 - no permissions to create directory
+#6 - error with LASTZ gapped extension
+#7 - unable to open file
+#9 - not enopugh allocated CPU DRAM
+#10 - Requested GPUs greater than available GPUs
+#11 - Error with cudaSetDevice in GPU part
+#12 - Error with cudaMalloc in GPU part
+#13 - Error with cudaMemcpy in GPU part
+#14 - Error with cudaFree in GPU part
+
+set -e
+
+optionalArguments=""
+optionalArguments1=""
+ng=0
+outf=0
+output_filename=""
+hp=0
+total_args=0
+lastz_command_file="./lastz-commands.txt" 
+
+args=("$@")
+
+for ((i=0; i < $#; i++)){
+  new_arg=`echo "${args[$i]}" | sed 's/=/ /'`
+  optionalArguments1="$optionalArguments1 $new_arg"
+}
+
+# 3rd parameter is maximum segment size [int]
+max_segment_size=$3
+
+split_args=( $optionalArguments1 )
+total_args=${#split_args[@]}
+
+for ((i=3; i < $#; i++)){
+  optionalArguments="$optionalArguments ${args[$i]}"
+}
+
+for ((i=0; i < $total_args; i++)){
+
+  if [[ "${split_args[$i]}" == *"--output"* ]]; then
+    outf=1
+    output_filename=$(readlink -f ${split_args[$(($i+1))]})
+  fi
+
+  if [[ "${split_args[$i]}" == *"--help"* ]]; then
+    hp=1
+  fi
+}
+
+if [ $hp -eq 1 ]; then
+  segalign --help
+
+elif [ $# -eq 1 ] || [ $# -eq 0 ]; then
+  segalign $1
+
+else
+  refPath=$(readlink -f $1)
+  queryPath=$(readlink -f $2)
+
+  if [ ! -f "$refPath" ]; then
+    1>&2 echo "target file $refPath does not exist"
+    (exit 4)
+  fi
+
+  if [ ! -f "$queryPath" ]; then
+    1>&2 echo "query file $queryPath does not exist"
+    (exit 4)
+  fi
+
+
+  if [ ! -w $PWD ]; then
+    1>&2 echo "Cannot create output directory in $PWD because of permissions"
+    (exit 5)
+  fi
+
+  OUTPUT_FOLDER=$PWD/output_$RANDOM # this is the working directory, which holds all the outputs and 2bit data
+  mkdir -p $OUTPUT_FOLDER
+
+  if [ ! -w $OUTPUT_FOLDER ]; then
+    1>&2 echo "Cannot create data directory in $OUTPUT_FOLDER because of permissions"
+    (exit 5)
+  fi
+
+  DATA_FOLDER=$OUTPUT_FOLDER/data_$RANDOM/
+  mkdir -p $DATA_FOLDER # holds the 2bit data
+
+  if [ $ng -eq 0 ]; then
+    cd $DATA_FOLDER
+    1>&2 echo ""
+    1>&2 echo "Converting fasta files to 2bit format"
+    faToTwoBit $refPath ref.2bit
+    faToTwoBit $queryPath query.2bit
+  fi
+
+  1>&2 echo ""
+  1>&2 echo "Executing: \"segalign $refPath $queryPath $DATA_FOLDER $optionalArguments\""
+
+
+  cd $OUTPUT_FOLDER # change working directory
+
+  # change absolute paths to relative
+  DATA_FOLDER=$(realpath --relative-to=$OUTPUT_FOLDER $DATA_FOLDER)/
+
+  time {
+  while IFS= read -r line; do  
+    diagonal_partition $max_segment_size $line >> $lastz_command_file
+    # segalign sort writes out the partitioned segment files to the working
+    # directory and prints the modified lastz commands.
+  done < <(stdbuf -oL segalign $refPath $queryPath $DATA_FOLDER $optionalArguments ) # segalign begins running in this line, 
+  } # and every newline written to stdout, get assigned to $line which
+    # gets sent to diagonal_partition for diagonal partitioning
+fi
