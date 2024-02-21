@@ -141,34 +141,35 @@ if __name__ == "__main__":
             print(' '.join(params), flush=True)
     
     # writing unsorted skipped pairs
-    skip_pairs_with_len = sorted([(len(data[p]), p) for p in skip_pairs]) # list of tuples of (pair length, pair)
-    aggregated_skip_pairs = [] # list of list of pair names
-    current_count = 0
-    aggregated_skip_pairs.append([])
-    for count, pair in skip_pairs_with_len:
-        if current_count + count <= chunk_size:
-            current_count += count
-            aggregated_skip_pairs[-1].append(pair)
-        else:
-            aggregated_skip_pairs.append([])
-            current_count = count
-            aggregated_skip_pairs[-1].append(pair)
+    if len(skip_pairs) > 0:
+        skip_pairs_with_len = sorted([(len(data[p]), p) for p in skip_pairs]) # list of tuples of (pair length, pair)
+        aggregated_skip_pairs = [] # list of list of pair names
+        current_count = 0
+        aggregated_skip_pairs.append([])
+        for count, pair in skip_pairs_with_len:
+            if current_count + count <= chunk_size:
+                current_count += count
+                aggregated_skip_pairs[-1].append(pair)
+            else:
+                aggregated_skip_pairs.append([])
+                current_count = count
+                aggregated_skip_pairs[-1].append(pair)
+                
+        for aggregate in aggregated_skip_pairs:
+                ctr += 1
+                name_addition = f".split{ctr}"
+                fname = input_file.split('.segments', 1)[0] + name_addition + '.segments'
+                with open(fname, 'w') as f:
+                    for pair in sorted(aggregate, key=lambda p: (p[1], p[0])):
+                        chunk = list(zip(*data[pair]))[2]
+                        f.writelines(chunk)
+                # update segment file in command
+                params[segment_index] = segment_key + fname
+                # update output file in command
+                params[output_index] = output_key + output_alignment_file_base + name_addition + '.' + output_format
+                # update error file in command
+                params[-1] = err_name_base + name_addition + '.err'
+                print(' '.join(params), flush=True)    
             
-    for aggregate in aggregated_skip_pairs:
-            ctr += 1
-            name_addition = f".split{ctr}"
-            fname = input_file.split('.segments', 1)[0] + name_addition + '.segments'
-            with open(fname, 'w') as f:
-                for pair in sorted(aggregate, key=lambda p: (p[1], p[0])):
-                    chunk = list(zip(*data[pair]))[2]
-                    f.writelines(chunk)
-            # update segment file in command
-            params[segment_index] = segment_key + fname
-            # update output file in command
-            params[output_index] = output_key + output_alignment_file_base + name_addition + '.' + output_format
-            # update error file in command
-            params[-1] = err_name_base + name_addition + '.err'
-            print(' '.join(params), flush=True)    
-        
     if DELETE_AFTER_CHUNKING:  
         os.remove(input_file)
